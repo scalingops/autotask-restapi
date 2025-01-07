@@ -1,6 +1,6 @@
 {
   "name": "@apigrate/autotask-restapi",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "NodeJS library for the Autotask REST API.",
   "main": "index.js",
   "scripts": {
@@ -13,8 +13,10 @@
   "keywords": [
     "Autotask",
     "API",
-    "REST",
-    "Apigrate"
+    "Apigrate",
+    "Datto",
+    "Kaseya",
+    "REST"
   ],
   "author": "Derek Gau",
   "license": "Apache-2.0",

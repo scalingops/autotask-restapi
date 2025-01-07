@@ -623,3 +623,9 @@ Support for debugging is provided via the [debug]() library. Two levels of debug
 * **debug** include `autotask:restapi` in your `DEBUG` environment variable
 * **verbose** include `autotask:restapi:verbose` or simply `autotask:restapi*` in your `DEBUG` environment variable.
 
+
+# If you like this...
+
+### [Look us up](https://www.apigrate.com) for API integration consulting as well as full-stack application development.
+
+<img src="https://www.apigrate.com/content/images/2023/12/HORIZONTAL-PRIMARY-TRANSPARENT.png" alt="Apigrate" style="max-width: 20vw; margin-left: 30vw;" />
