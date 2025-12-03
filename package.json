@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mspportal/autotask-restapi.git"
+    "url": "git+https://github.com/scalingops/autotask-restapi.git"
   },
   "keywords": [
     "Autotask",
@@ -30,9 +30,9 @@
   ],
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/mspportal/autotask-restapi/issues"
+    "url": "https://github.com/scalingops/autotask-restapi/issues"
   },
-  "homepage": "https://github.com/mspportal/autotask-restapi#readme",
+  "homepage": "https://github.com/scalingops/autotask-restapi#readme",
   "dependencies": {
     "debug": "^4.3.4"
   },
