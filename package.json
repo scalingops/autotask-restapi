@@ -1,14 +1,14 @@
 {
   "name": "@apigrate/autotask-restapi",
-  "version": "2.0.1",
-  "description": "NodeJS library for the Autotask REST API.",
+  "version": "3.0.0",
+  "description": "NodeJS library for the Autotask REST API with automatic pagination and retry support.",
   "main": "index.js",
   "scripts": {
     "test": "jest index.test.js"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/apigrate/autotask-restapi.git"
+    "url": "git+https://github.com/mspportal/autotask-restapi.git"
   },
   "keywords": [
     "Autotask",
@@ -16,14 +16,23 @@
     "Apigrate",
     "Datto",
     "Kaseya",
-    "REST"
+    "REST",
+    "MSP",
+    "pagination",
+    "retry"
   ],
   "author": "Derek Gau",
+  "contributors": [
+    {
+      "name": "MSPortal",
+      "url": "https://github.com/mspportal"
+    }
+  ],
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/apigrate/autotask-restapi/issues"
+    "url": "https://github.com/mspportal/autotask-restapi/issues"
   },
-  "homepage": "https://github.com/apigrate/autotask-restapi#readme",
+  "homepage": "https://github.com/mspportal/autotask-restapi#readme",
   "dependencies": {
     "debug": "^4.3.4"
   },

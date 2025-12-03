@@ -1,5 +1,6 @@
 /*
   Copyright 2020-2024 Apigrate LLC
+  Copyright 2024 MSPortal (v3 enhancements)
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -18,21 +19,35 @@ const verbose = require('debug')('autotask:restapi:verbose');
 const https = require('https');
 const crypto = require('crypto');
 
+/** Default retry configuration */
+const DEFAULT_RETRY_OPTIONS = {
+  enabled: true,
+  attempts: 10,
+  delay: 1000,
+  delay_factor: 2,
+  retryOnStatuses: [429, 500, 502, 503, 504]
+};
+
 /**
  * Autotask REST API NodeJS connector.
- * 
- * This class provides a simple interface to the Autotask REST API. 
+ *
+ * This class provides a simple interface to the Autotask REST API.
  */
 class AutotaskRestApi {
   /**
    * Create an Autotask Rest API connector instance.
    * @param {string} user Autotask API user identifier (required)
-   * @param {string} secret Autotas API secret associated with the user (required)
+   * @param {string} secret Autotask API secret associated with the user (required)
    * @param {string} code Autotask API integration tracking code (required)
    * @param {object} options
    * @param {string} options.base_url the REST API base url. (Default https://webservices2.autotask.net/ATServicesRest/)
-   * @param {string} options.version Autotask REST API decimal version (e.g. 1.0). (Default 1.0);
-   * 
+   * @param {string} options.version Autotask REST API decimal version (e.g. 1.0). (Default 1.0)
+   * @param {object} options.retry Retry configuration for rate-limited and server error responses
+   * @param {boolean} options.retry.enabled Enable automatic retries (Default: true)
+   * @param {number} options.retry.attempts Maximum retry attempts (Default: 10)
+   * @param {number} options.retry.delay Initial delay in ms between retries (Default: 1000)
+   * @param {number} options.retry.delay_factor Exponential backoff multiplier (Default: 2)
+   * @param {number[]} options.retry.retryOnStatuses HTTP status codes to retry on (Default: [429, 500, 502, 503, 504])
    */
   constructor(user, secret, code, options){
     if(!user)throw new Error(`An API user is required.`);
@@ -42,16 +57,23 @@ class AutotaskRestApi {
     this.user = user;
     this.secret = secret;
     this.code = code;
-    
+
     this.base_url = `https://webservices.autotask.net/ATServicesRest/`; //As returned by zoneInformation.url
     this.version = '1.0';
-    
+
+    // Initialize retry options with defaults
+    this.retryOptions = { ...DEFAULT_RETRY_OPTIONS };
+
     if(options){
       if(options.base_url){
         this.base_url = options.base_url;
       }
       if(options.version){
         this.version = options.version;
+      }
+      // Merge retry options
+      if(options.retry){
+        this.retryOptions = { ...DEFAULT_RETRY_OPTIONS, ...options.retry };
       }
     }
 
@@ -288,6 +310,116 @@ class AutotaskRestApi {
         udfInfo: async ()=>{
           return await this._get(`/${entity.name}/entityInformation/userDefinedFields`);
         },
+
+        /**
+         * Fetch all records across multiple pages automatically using ID-based pagination.
+         * @param {object} search Query parameters (filter, includeFields, etc.)
+         * @param {object} options Pagination options
+         * @param {number} options.maxPages Maximum pages to fetch (default: 100)
+         * @param {function} options.onPage Callback called for each page: (items, pageNum, totalSoFar) => void
+         * @param {AbortSignal} options.signal Optional AbortSignal to cancel pagination
+         * @returns {Promise<{items: Array, pageDetails: {count: number, pagesRetrieved: number}}>}
+         */
+        queryAll: async (search = {}, options = {}) => {
+          if(entity.name === 'Modules') {
+            // Modules doesn't support query, just return the single result
+            const result = await this._get(`/${entity.name}`);
+            return { items: result?.modules || [], pageDetails: { count: result?.modules?.length || 0, pagesRetrieved: 1 } };
+          }
+
+          const maxPages = options.maxPages ?? 100;
+          const allItems = [];
+          let lastId = 0;
+          let pageNum = 0;
+
+          while (pageNum < maxPages) {
+            // Check for abort signal
+            if (options.signal?.aborted) {
+              break;
+            }
+
+            // Build filter with id > lastId for pagination
+            const paginatedSearch = {
+              ...search,
+              filter: [
+                ...(search.filter || []),
+                { field: 'id', op: 'gt', value: lastId }
+              ]
+            };
+
+            const response = await this._post(`/${entity.name}/query`, paginatedSearch);
+            const items = response?.items || [];
+
+            if (items.length === 0) break;
+
+            allItems.push(...items);
+            lastId = items[items.length - 1].id;
+            pageNum++;
+
+            // Call progress callback if provided
+            if (options.onPage) {
+              await options.onPage(items, pageNum, allItems.length);
+            }
+
+            // If we got less than 500 items, we've reached the end
+            if (items.length < 500) break;
+          }
+
+          return {
+            items: allItems,
+            pageDetails: {
+              count: allItems.length,
+              pagesRetrieved: pageNum
+            }
+          };
+        },
+
+        /**
+         * Async generator for memory-efficient pagination through large datasets.
+         * @param {object} search Query parameters (filter, includeFields, etc.)
+         * @param {object} options Pagination options
+         * @param {number} options.maxPages Maximum pages to fetch (default: 100)
+         * @yields {{items: Array, pageNum: number, pageDetails: object}}
+         */
+        queryPaginated: async function* (search = {}, options = {}) {
+          if(entity.name === 'Modules') {
+            const result = await this._get(`/${entity.name}`);
+            yield { items: result?.modules || [], pageNum: 1, pageDetails: { count: result?.modules?.length || 0 } };
+            return;
+          }
+
+          const maxPages = options.maxPages ?? 100;
+          let lastId = 0;
+          let pageNum = 0;
+
+          while (pageNum < maxPages) {
+            // Build filter with id > lastId for pagination
+            const paginatedSearch = {
+              ...search,
+              filter: [
+                ...(search.filter || []),
+                { field: 'id', op: 'gt', value: lastId }
+              ]
+            };
+
+            const response = await this._post(`/${entity.name}/query`, paginatedSearch);
+            const items = response?.items || [];
+
+            if (items.length === 0) break;
+
+            lastId = items[items.length - 1].id;
+            pageNum++;
+
+            yield {
+              items,
+              pageNum,
+              pageDetails: response?.pageDetails || { count: items.length }
+            };
+
+            // If we got less than 500 items, we've reached the end
+            if (items.length < 500) break;
+          }
+        }.bind(this),
       };
 
       //Adjust endpoints for child entities.
@@ -430,15 +562,41 @@ class AutotaskRestApi {
       fetchParms.agent = new https.Agent({
         secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT
       });
-      let response = await fetch(`${full_url}`, fetchParms);
-      
+
+      // Retry wrapper with exponential backoff for rate-limited and server error responses
+      let attempts = 0;
+      const fetchWithRetry = async () => {
+        attempts++;
+        let response = await fetch(`${full_url}`, fetchParms);
+
+        if (response.ok) {
+          return response;
+        }
+
+        // Check if we should retry this status code
+        const shouldRetry = this.retryOptions.enabled &&
+          attempts < this.retryOptions.attempts &&
+          this.retryOptions.retryOnStatuses.includes(response.status);
+
+        if (shouldRetry) {
+          const delay = this.retryOptions.delay * Math.pow(this.retryOptions.delay_factor, attempts - 1);
+          debug(`  Rate limited or server error (HTTP-${response.status}). Retry ${attempts}/${this.retryOptions.attempts} in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return fetchWithRetry();
+        }
+
+        return response;
+      };
+
+      let response = await fetchWithRetry();
+
       if(response.ok){
         let result = await response.json();
-        debug(`...ok. (HTTP ${response.status})`);
+        debug(`...ok. (HTTP ${response.status})${attempts > 1 ? ` after ${attempts} attempts` : ''}`);
         verbose(`  received: ${JSON.stringify(result)}`);
         return result;
       } else {
-        debug(`  ...Error. HTTP-${response.status}`);
+        debug(`  ...Error. HTTP-${response.status}${attempts > 1 ? ` after ${attempts} attempts` : ''}`);
         let result = null;
         let text = await response.text();
         // Usually JSON is returned, but not always, so...
@@ -452,28 +610,28 @@ class AutotaskRestApi {
         }
 
         verbose(result);
-        
+
         if (response.status >=300 & response.status < 400){
           verbose(` redirection.`);
-        
+
         } else if(response.status === 401 || response.status === 403){
           verbose(` authorization error.`);
           throw new AutotaskApiError('Authorization error.', response.status, result);
-        
+
         } else if(response.status === 404){
           // Not an "error" from the standpoint of processing. Return null for any not-found responses.
           verbose(`  not found.`);
           return null;
-        
-        } else if (response.status >= 400 && response.status < 500){ 
+
+        } else if (response.status >= 400 && response.status < 500){
           verbose(`  client error.`);
           throw new AutotaskApiError(`Client error (HTTP-${response.status}). ${text}`, response.status, result);
-        
+
         } else if (response.status >=500) {
           verbose(`  server error.`);
           throw new AutotaskApiError(`Server error (HTTP-${response.status}). ${text}`, response.status, result);
-        
-        } else { 
+
+        } else {
           throw err; //Cannot be handled here.
         }
         return result;

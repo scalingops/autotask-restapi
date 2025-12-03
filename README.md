@@ -1,5 +1,74 @@
 # Autotask REST API NodeJS Connector
 
+# v3 Release Notes
+
+## New Features
+
+### Automatic Retry with Exponential Backoff
+Rate-limited requests (HTTP 429) and server errors (5xx) are now automatically retried with exponential backoff. This is enabled by default.
+
+```javascript
+const autotask = new AutotaskRestApi(user, secret, code, {
+  retry: {
+    enabled: true,        // default: true
+    attempts: 10,         // default: 10 max retry attempts
+    delay: 1000,          // default: 1000ms initial delay
+    delay_factor: 2,      // default: 2x exponential backoff
+    retryOnStatuses: [429, 500, 502, 503, 504]  // default status codes to retry
+  }
+});
+```
+
+To disable automatic retries:
+```javascript
+const autotask = new AutotaskRestApi(user, secret, code, {
+  retry: { enabled: false }
+});
+```
+
+### Automatic Pagination with queryAll()
+Fetch all records across multiple pages automatically. The Autotask API returns a maximum of 500 records per query - `queryAll()` handles pagination automatically using ID-based iteration.
+
+```javascript
+// Fetch ALL active companies (handles pagination automatically)
+const result = await autotask.Companies.queryAll({
+  filter: [{ field: 'isActive', op: 'eq', value: true }]
+});
+console.log(`Fetched ${result.items.length} companies across ${result.pageDetails.pagesRetrieved} pages`);
+```
+
+With progress callback and safety limits:
+```javascript
+const result = await autotask.Tickets.queryAll(
+  {
+    filter: [{ field: 'status', op: 'noteq', value: 5 }]
+  },
+  {
+    maxPages: 50,  // Safety limit (default: 100)
+    onPage: (items, pageNum, totalSoFar) => {
+      console.log(`Page ${pageNum}: ${items.length} items (${totalSoFar} total)`);
+    }
+  }
+);
+```
+
+### Streaming Pagination with queryPaginated()
+For memory-efficient processing of large datasets, use the async generator:
+
+```javascript
+for await (const { items, pageNum } of autotask.Tickets.queryPaginated({
+  filter: [{ field: 'status', op: 'noteq', value: 5 }]
+})) {
+  console.log(`Processing page ${pageNum} with ${items.length} tickets`);
+  await processTickets(items);
+}
+```
+
+## No Breaking Changes
+v3 is fully backward compatible with v2. All existing code continues to work unchanged. New features are opt-in additions.
+
+---
+
 # v2 Release Notes
 
 ## Breaking changes:
@@ -7,6 +76,7 @@
 1. Removed the api() method. All API entity references are now available directly on the AutotaskRestApi instance.
 1. API calls automatically invoke the `zoneInformation` API when needed. No initialization is necessary.
 
+---
 
 This connector simplifies interaction with the [Autotask PSA REST API](https://ww3.autotask.net/help/DeveloperHelp/Content/AdminSetup/2ExtensionsIntegrations/APIs/REST/REST_API_Home.htm) for developers using NodeJS.
 
@@ -201,6 +271,57 @@ result = await autotask.Companies.query({
 ```
 
 [related Autotask documentation](https://ww3.autotask.net/help/DeveloperHelp/Content/APIs/REST/API_Calls/REST_Advanced_Query_Features.htm)
+
+### queryAll
+Fetch all records across multiple pages automatically. This method handles pagination internally using ID-based iteration (recommended by Autotask for large result sets).
+
+```javascript
+// Fetch all active companies
+const result = await autotask.Companies.queryAll({
+  filter: [{ field: 'isActive', op: 'eq', value: true }]
+});
+
+console.log(result.items);              // Array of all companies
+console.log(result.pageDetails.count);  // Total count
+console.log(result.pageDetails.pagesRetrieved); // Number of API calls made
+```
+
+**Options:**
+- `maxPages` (number): Maximum pages to fetch. Default: 100. Safety limit to prevent runaway queries.
+- `onPage` (function): Callback invoked after each page: `(items, pageNum, totalSoFar) => void`
+- `signal` (AbortSignal): Optional signal to cancel pagination mid-stream.
+
+```javascript
+const controller = new AbortController();
+
+const result = await autotask.Tickets.queryAll(
+  { filter: [{ field: 'id', op: 'gt', value: 0 }] },
+  {
+    maxPages: 20,
+    signal: controller.signal,
+    onPage: (items, page, total) => {
+      console.log(`Page ${page}: ${items.length} items`);
+      if (total > 5000) controller.abort(); // Stop if too many
+    }
+  }
+);
+```
+
+### queryPaginated
+Async generator for memory-efficient streaming of large datasets. Use this when you want to process records page-by-page without loading everything into memory.
+
+```javascript
+for await (const { items, pageNum, pageDetails } of autotask.Contacts.queryPaginated({
+  filter: [{ field: 'isActive', op: 'eq', value: 1 }]
+})) {
+  // Process each page as it arrives
+  await saveContactsToDatabase(items);
+  console.log(`Saved page ${pageNum}`);
+}
+```
+
+**Options:**
+- `maxPages` (number): Maximum pages to iterate. Default: 100.
 
 ### create
 Creates an entity.
