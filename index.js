@@ -591,6 +591,21 @@ class AutotaskRestApi {
       let response = await fetchWithRetry();
 
       if(response.ok){
+        // Guard against non-JSON responses (e.g. CDN/WAF challenge pages returning HTML with HTTP 200)
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('text/html')) {
+          const htmlBody = await response.text();
+          const preview = htmlBody.substring(0, 200);
+          debug(`  ...Error: received HTML instead of JSON (content-type: ${contentType})`);
+          throw new AutotaskApiError(
+            `Autotask API returned HTML instead of JSON (HTTP ${response.status}). ` +
+            `This usually means a CDN/WAF challenge page, API maintenance, or incorrect zone URL. ` +
+            `Response preview: ${preview}`,
+            response.status,
+            { html: preview }
+          );
+        }
+
         let result = await response.json();
         debug(`...ok. (HTTP ${response.status})${attempts > 1 ? ` after ${attempts} attempts` : ''}`);
         verbose(`  received: ${JSON.stringify(result)}`);
