@@ -22,10 +22,11 @@ const crypto = require('crypto');
 /** Default retry configuration */
 const DEFAULT_RETRY_OPTIONS = {
   enabled: true,
-  attempts: 10,
+  attempts: 3,
   delay: 1000,
   delay_factor: 2,
-  retryOnStatuses: [429, 500, 502, 503, 504]
+  max_delay: 10000,
+  retryOnStatuses: [429, 502, 503, 504]
 };
 
 /**
@@ -579,7 +580,8 @@ class AutotaskRestApi {
           this.retryOptions.retryOnStatuses.includes(response.status);
 
         if (shouldRetry) {
-          const delay = this.retryOptions.delay * Math.pow(this.retryOptions.delay_factor, attempts - 1);
+          const maxDelay = this.retryOptions.max_delay || 10000;
+          const delay = Math.min(this.retryOptions.delay * Math.pow(this.retryOptions.delay_factor, attempts - 1), maxDelay);
           debug(`  Rate limited or server error (HTTP-${response.status}). Retry ${attempts}/${this.retryOptions.attempts} in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           return fetchWithRetry();
@@ -611,9 +613,10 @@ class AutotaskRestApi {
         verbose(`  received: ${JSON.stringify(result)}`);
         return result;
       } else {
-        debug(`  ...Error. HTTP-${response.status}${attempts > 1 ? ` after ${attempts} attempts` : ''}`);
+        console.error(`[autotask-restapi] Error: ${method} ${full_url} -> HTTP-${response.status}${attempts > 1 ? ` after ${attempts} attempts` : ''}`);
         let result = null;
         let text = await response.text();
+        if (text) console.error(`[autotask-restapi] Response body: ${text.substring(0, 500)}`);
         // Usually JSON is returned, but not always, so...
         try{
           result = JSON.parse(text);
