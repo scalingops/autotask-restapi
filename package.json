@@ -1,6 +1,6 @@
 {
   "name": "@apigrate/autotask-restapi",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "NodeJS library for the Autotask REST API with automatic pagination and retry support.",
   "main": "index.js",
   "scripts": {
